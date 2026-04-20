@@ -11,7 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <!-- SheetJS for Excel -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 @media print{body{display:none!important;}}
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -1013,19 +1013,29 @@ function importFromExcel(){
 }
 
 function downloadSampleExcel(){
-  var data=[
-    {유형:'mc',문제:'대한민국의 수도는?',보기1:'서울',보기2:'부산',보기3:'인천',보기4:'대구',정답:'1',배점:10,제한시간:60,유사답안:'',유사도:'normal'},
-    {유형:'mc',문제:'다음 중 태양계에서 가장 큰 행성은?',보기1:'지구',보기2:'화성',보기3:'목성',보기4:'토성',보기5:'천왕성',정답:'3',배점:10,제한시간:60,유사답안:'',유사도:'normal'},
-    {유형:'sa',문제:'광합성이 일어나는 세포 소기관의 이름은?',보기1:'',보기2:'',보기3:'',보기4:'',정답:'엽록체',배점:15,제한시간:90,유사답안:'엽록소,chloroplast',유사도:'normal'},
-    {유형:'ox',문제:'지구는 태양 주위를 공전한다.',보기1:'',보기2:'',보기3:'',보기4:'',정답:'O',배점:5,제한시간:30,유사답안:'',유사도:'normal'},
-    {유형:'es',문제:'광합성과 호흡의 차이점을 서술하시오.',보기1:'',보기2:'',보기3:'',보기4:'',정답:'',배점:20,제한시간:300,유사답안:'',채점기준:'광합성: 빛에너지를 화학에너지로 변환. 호흡: 화학에너지를 ATP로 변환. 두 가지 모두 언급 시 만점.'}
-  ];
-  var ws=XLSX.utils.json_to_sheet(data);
-  var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,'문제',ws);
-  // column widths
-  ws['!cols']=[{wch:8},{wch:40},{wch:12},{wch:12},{wch:12},{wch:12},{wch:8},{wch:8},{wch:6},{wch:25},{wch:8},{wch:40}];
-  XLSX.writeFile(wb,'시험_문제_샘플.xlsx');
+  if(typeof XLSX==='undefined'){alert('잠시 후 다시 시도해주세요.');return;}
+  try{
+    var aoa=[
+      ['유형','문제','보기1','보기2','보기3','보기4','보기5','보기6','정답','배점','제한시간','유사답안','유사도','채점기준'],
+      ['mc/sa/ox/es','문제 내용 (필수)','객관식1','객관식2','객관식3','객관식4','객관식5','객관식6','mc=번호/sa=텍스트/ox=O또는X','숫자','초(0=기본)','쉼표구분','strict/normal/loose','서술형메모'],
+      ['mc','대한민국의 수도는?','서울','부산','인천','대구','','','1',10,60,'','normal',''],
+      ['mc','태양계에서 가장 큰 행성은?','지구','화성','목성','토성','천왕성','','3',10,60,'','normal',''],
+      ['sa','광합성이 일어나는 세포 소기관은?','','','','','','','엽록체',15,90,'엽록소,chloroplast','normal',''],
+      ['ox','지구는 태양 주위를 공전한다.','','','','','','','O',5,30,'','normal',''],
+      ['es','광합성과 호흡의 차이점을 서술하시오.','','','','','','','',20,300,'','normal','핵심 키워드 2개 이상 포함 시 만점']
+    ];
+    var ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:8},{wch:40},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:26},{wch:6},{wch:12},{wch:20},{wch:8},{wch:28}];
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,'sheet1',ws);
+    var wbout=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    var blob=new Blob([wbout],{type:'application/octet-stream'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url; a.download='exam_questions_sample.xlsx';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }catch(e){alert('다운로드 오류: '+e.message);}
 }
 
 // ============================================================
@@ -1271,21 +1281,29 @@ function clearStuPreview(){
 }
 
 function downloadStuSample(){
-  var data=[
-    {학번:'2024001',이름:'김민준',이메일:'minjun@university.ac.kr'},
-    {학번:'2024002',이름:'이서연',이메일:'seoyeon@university.ac.kr'},
-    {학번:'2024003',이름:'박지호',이메일:'jiho@university.ac.kr'},
-    {학번:'2024004',이름:'최수아',이메일:'sua@university.ac.kr'},
-    {학번:'2024005',이름:'정우진',이메일:'woojin@university.ac.kr'},
-  ];
-  // 설명행 추가 (2행)
-  var descRow={학번:'필수 — 숫자 또는 문자',이름:'필수 — 로그인 시 입력과 동일하게',이메일:'선택 — 점수 이메일 발송용'};
-  var ws=XLSX.utils.json_to_sheet([descRow].concat(data));
-  // 헤더 스타일은 SheetJS 무료버전 미지원, 컬럼 너비만
-  ws['!cols']=[{wch:16},{wch:14},{wch:32}];
-  var wb2=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb2,'학생명단',ws);
-  XLSX.writeFile(wb2,'학생명단_샘플.xlsx');
+  if(typeof XLSX==='undefined'){alert('잠시 후 다시 시도해주세요.');return;}
+  try{
+    var aoa=[
+      ['학번','이름','이메일'],
+      ['필수-숫자또는문자(예:2024001)','필수-로그인시입력과동일','선택-점수이메일발송용'],
+      ['2024001','김민준','minjun@university.ac.kr'],
+      ['2024002','이서연','seoyeon@university.ac.kr'],
+      ['2024003','박지호','jiho@university.ac.kr'],
+      ['2024004','최수아','sua@university.ac.kr'],
+      ['2024005','정우진','woojin@university.ac.kr']
+    ];
+    var ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:20},{wch:14},{wch:34}];
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,'sheet1',ws);
+    var wbout=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    var blob=new Blob([wbout],{type:'application/octet-stream'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url; a.download='students_sample.xlsx';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }catch(e){alert('다운로드 오류: '+e.message);}
 }
 function addSamples(){
   [{id:'2024001',name:'김민준'},{id:'2024002',name:'이서연'},{id:'2024003',name:'박지호'},{id:'2024004',name:'최수아'},{id:'2024005',name:'정우진'},
