@@ -427,8 +427,31 @@ textarea{resize:vertical;}
 <div id="pn-students" class="panel hidden">
   <div class="sec-title">학생 목록</div>
   <div class="sec-sub">응시할 학생을 등록합니다 (비워두면 누구나 응시 가능)</div>
+
+  <!-- 엑셀 업로드 -->
   <div class="card">
-    <div class="ctitle">학생 추가</div>
+    <div class="ctitle">엑셀로 학생 일괄 업로드</div>
+    <div class="excel-drop" id="stuExcelDrop"
+      ondragover="dragOver(event,'stuExcelDrop')" ondragleave="dragLeave('stuExcelDrop')"
+      ondrop="dropStuExcel(event)" onclick="document.getElementById('stuExcelFile').click()">
+      <input type="file" id="stuExcelFile" accept=".xlsx,.xls" style="display:none" onchange="loadStuExcel(this)"/>
+      <div class="excel-drop-icon">👥</div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">학생명단 엑셀 파일을 드래그하거나 클릭해서 선택</div>
+      <div style="font-size:12px;color:#999;">학번 · 이름 · 이메일(선택) 컬럼 · 3행부터 데이터</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-blue" onclick="downloadStuSample()">📥 학생명단 샘플 엑셀 다운로드</button>
+    </div>
+    <div id="stuExcelPreview"></div>
+    <div id="stuImportBtnRow" class="hidden btn-row">
+      <button class="btn btn-green" id="stuImportBtn" onclick="importStudents()">학생 가져오기</button>
+      <button class="btn" onclick="clearStuPreview()">취소</button>
+    </div>
+  </div>
+
+  <!-- 직접 추가 -->
+  <div class="card">
+    <div class="ctitle">학생 직접 추가</div>
     <div class="row2">
       <div class="field"><label>학번</label><input id="sid" placeholder="예: 2024001"/></div>
       <div class="field"><label>이름</label><input id="sname" placeholder="이름"/></div>
@@ -439,6 +462,7 @@ textarea{resize:vertical;}
       <button class="btn btn-red" onclick="if(confirm('전체 삭제?'))clearStus()">전체 삭제</button>
     </div>
   </div>
+
   <div class="card">
     <div class="ctitle">등록된 학생 (<span id="scnt">0</span>명)</div>
     <div id="slist"><p style="font-size:13px;color:#bbb;">없으면 학번+이름 자유 입력으로 응시 가능합니다.</p></div>
@@ -1165,6 +1189,103 @@ function addStu(){
   if(DB.students.find(function(s){return s.id===id;})){alert('이미 등록된 학번');return;}
   DB.students.push({id:id,name:name});saveDB();
   document.getElementById('sid').value='';document.getElementById('sname').value='';
+}
+
+// ── 학생 엑셀 업로드 ──
+var pendingStuData = [];
+
+function dragOver(e, zoneId){e.preventDefault();var el=document.getElementById(zoneId);if(el)el.classList.add('drag-over');}
+function dragLeave(zoneId){var el=document.getElementById(zoneId);if(el)el.classList.remove('drag-over');}
+function dropStuExcel(e){e.preventDefault();dragLeave('stuExcelDrop');var f=e.dataTransfer.files[0];if(f)processStuExcel(f);}
+function loadStuExcel(inp){if(inp.files[0])processStuExcel(inp.files[0]);}
+
+function processStuExcel(file){
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var wb=XLSX.read(e.target.result,{type:'array'});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      var allRows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      if(allRows.length<3){alert('3행부터 학생 데이터를 입력해주세요.');return;}
+      var headers=allRows[0];
+      var dataRows=allRows.slice(2).filter(function(r){
+        return r.some(function(c){return c!==null&&c!==undefined&&c!=='';});
+      });
+      pendingStuData=dataRows.map(function(row){
+        var obj={};
+        headers.forEach(function(h,i){obj[h]=row[i]!==undefined?String(row[i]).trim():'';});
+        return obj;
+      });
+      renderStuPreview(pendingStuData);
+    }catch(ex){alert('엑셀 파일 읽기 오류: '+ex.message);}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderStuPreview(rows){
+  var div=document.getElementById('stuExcelPreview');
+  var btn=document.getElementById('stuImportBtn');
+  if(!rows.length){div.innerHTML='<p style="color:#922b21;font-size:13px;margin-top:10px;">데이터가 없습니다.</p>';return;}
+  // 유효한 행만 (학번+이름 둘 다 있어야)
+  var valid=rows.filter(function(r){return (r['학번']||r['id']||r['ID'])&&(r['이름']||r['name']||r['Name']);});
+  var html='<div class="excel-preview" style="margin-top:14px;">'+
+    '<div style="font-size:12px;font-weight:700;color:#888;margin-bottom:6px;">미리보기 (최대 5행 / 유효: '+valid.length+'명)</div>'+
+    '<table><thead><tr><th>학번</th><th>이름</th><th>이메일</th></tr></thead><tbody>'+
+    valid.slice(0,5).map(function(r){
+      var id=r['학번']||r['id']||r['ID']||'';
+      var name=r['이름']||r['name']||r['Name']||'';
+      var email=r['이메일']||r['email']||r['Email']||'';
+      return '<tr><td>'+escHtml(String(id))+'</td><td>'+escHtml(name)+'</td><td>'+escHtml(email)+'</td></tr>';
+    }).join('')+
+    '</tbody></table>'+
+    '<div style="font-size:12px;color:#888;margin-top:6px;">총 '+valid.length+'명 감지됨</div></div>';
+  div.innerHTML=html;
+  document.getElementById('stuImportBtnRow').classList.remove('hidden');
+  if(btn) btn.textContent='학생 '+valid.length+'명 가져오기';
+}
+
+function importStudents(){
+  if(!pendingStuData.length){alert('데이터 없음');return;}
+  var added=0, skipped=0;
+  pendingStuData.forEach(function(row){
+    var id=String(row['학번']||row['id']||row['ID']||'').trim();
+    var name=String(row['이름']||row['name']||row['Name']||'').trim();
+    var email=String(row['이메일']||row['email']||row['Email']||'').trim();
+    if(!id||!name){skipped++;return;}
+    if(DB.students.find(function(s){return s.id===id;})){skipped++;return;}
+    var stu={id:id,name:name};
+    if(email) stu.email=email;
+    DB.students.push(stu);
+    added++;
+  });
+  saveDB();
+  clearStuPreview();
+  alert('✓ '+added+'명 등록 완료!'+(skipped?' (중복/오류 '+skipped+'명 스킵)':''));
+}
+
+function clearStuPreview(){
+  pendingStuData=[];
+  document.getElementById('stuExcelPreview').innerHTML='';
+  document.getElementById('stuImportBtnRow').classList.add('hidden');
+  document.getElementById('stuExcelFile').value='';
+}
+
+function downloadStuSample(){
+  var data=[
+    {학번:'2024001',이름:'김민준',이메일:'minjun@university.ac.kr'},
+    {학번:'2024002',이름:'이서연',이메일:'seoyeon@university.ac.kr'},
+    {학번:'2024003',이름:'박지호',이메일:'jiho@university.ac.kr'},
+    {학번:'2024004',이름:'최수아',이메일:'sua@university.ac.kr'},
+    {학번:'2024005',이름:'정우진',이메일:'woojin@university.ac.kr'},
+  ];
+  // 설명행 추가 (2행)
+  var descRow={학번:'필수 — 숫자 또는 문자',이름:'필수 — 로그인 시 입력과 동일하게',이메일:'선택 — 점수 이메일 발송용'};
+  var ws=XLSX.utils.json_to_sheet([descRow].concat(data));
+  // 헤더 스타일은 SheetJS 무료버전 미지원, 컬럼 너비만
+  ws['!cols']=[{wch:16},{wch:14},{wch:32}];
+  var wb2=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2,'학생명단',ws);
+  XLSX.writeFile(wb2,'학생명단_샘플.xlsx');
 }
 function addSamples(){
   [{id:'2024001',name:'김민준'},{id:'2024002',name:'이서연'},{id:'2024003',name:'박지호'},{id:'2024004',name:'최수아'},{id:'2024005',name:'정우진'},
