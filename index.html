@@ -475,6 +475,7 @@ textarea{resize:vertical;}
     <div class="login-title">📝 시험</div>
     <div class="login-sub" id="loginSubtitle">학번과 이름을 입력하세요</div>
     <div id="exam-status-notice" class="alert alert-info" style="margin-bottom:14px;text-align:left;"></div>
+    <div id="resumeNotice" class="alert hidden" style="margin-bottom:14px;text-align:left;font-size:13px;"></div>
     <div class="card">
       <div class="field"><label>학번</label><input id="lid" placeholder="학번" autocomplete="off"/></div>
       <div class="field"><label>이름</label><input id="lname" placeholder="이름" autocomplete="off"/></div>
@@ -1338,6 +1339,18 @@ function doLogin(){
   if(DB.students.length>0&&!stu){err.textContent='학번 또는 이름이 명단에 없습니다.';err.classList.remove('hidden');return;}
   if(!stu)stu={id:id,name:name};
   err.classList.add('hidden');
+  // 이어보기 여부 로그인 전 미리 표시
+  var resumeNotice=document.getElementById('resumeNotice');
+  if(resumeNotice){
+    var saved=loadProgress(id);
+    if(saved&&saved.answers&&saved.answers.length>0){
+      resumeNotice.textContent='💾 이전 진행 기록 감지 — 로그인 후 이어보기 여부를 선택할 수 있습니다.';
+      resumeNotice.className='alert alert-info';
+      resumeNotice.classList.remove('hidden');
+    } else {
+      resumeNotice.classList.add('hidden');
+    }
+  }
   startExam(stu);
 }
 
@@ -1349,7 +1362,81 @@ var _selMC=-1,_selOX='';
 
 function getLimit(q){if(q.tl===-1)return -1;if(q.tl===0)return DB.settings.defTime||0;return q.tl;}
 
+// ── 이어보기: 임시저장 / 불러오기 / 삭제 ──
+function resumeKey(sid){
+  return 'examResume_'+(CURRENT_ID||'')+'_'+sid;
+}
+
+function saveProgress(){
+  if(!ES.student) return;
+  try{
+    var data={
+      sid: ES.student.id,
+      sname: ES.student.name,
+      qi: ES.qi,
+      answers: ES.answers,
+      startMs: ES.startMs,
+      savedAt: Date.now()
+    };
+    localStorage.setItem(resumeKey(ES.student.id), JSON.stringify(data));
+  }catch(e){}
+}
+
+function loadProgress(sid){
+  try{
+    var s=localStorage.getItem(resumeKey(sid));
+    return s?JSON.parse(s):null;
+  }catch(e){return null;}
+}
+
+function clearProgress(sid){
+  try{localStorage.removeItem(resumeKey(sid));}catch(e){}
+}
+
+function checkResume(stu){
+  // 이미 제출 완료한 학생은 이어보기 불가
+  if(DB.results.find(function(r){return r.sid===stu.id;})) return false;
+  var saved=loadProgress(stu.id);
+  if(!saved) return false;
+  // 저장된 지 24시간 이내만 유효
+  if(Date.now()-saved.savedAt > 24*60*60*1000){
+    clearProgress(stu.id);
+    return false;
+  }
+  // 진행한 문제가 1개 이상이어야
+  return saved.answers && saved.answers.length > 0;
+}
+
 function startExam(stu){
+  // 이어보기 확인
+  if(checkResume(stu)){
+    var saved=loadProgress(stu.id);
+    var prog=saved.answers.length;
+    var total=DB.questions.length;
+    var pct=Math.round(prog/total*100);
+    var savedTime=new Date(saved.savedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+    if(confirm(
+      '이전에 진행하던 시험 기록이 있습니다.\n\n'+
+      '진행 현황: '+prog+' / '+total+' 문제 완료 ('+pct+'%)\n'+
+      '저장 시각: '+savedTime+'\n\n'+
+      '이어서 진행하시겠습니까?\n\n'+
+      '(취소하면 처음부터 다시 시작합니다)'
+    )){
+      // 이어보기
+      ES.student=stu;
+      ES.qi=saved.qi;
+      ES.answers=saved.answers;
+      ES.startMs=saved.startMs;
+      go('exam');
+      document.getElementById('exName').textContent=stu.name+' ('+stu.id+') — '+(DB.settings.title||'');
+      renderQ();
+      return;
+    } else {
+      // 처음부터 — 임시 데이터 삭제
+      clearProgress(stu.id);
+    }
+  }
+  // 새로 시작
   ES.student=stu;ES.qi=0;ES.answers=[];ES.startMs=Date.now();
   go('exam');
   document.getElementById('exName').textContent=stu.name+' ('+stu.id+') — '+(DB.settings.title||'');
@@ -1458,6 +1545,8 @@ function submitQ(auto){
   }
 
   ES.answers.push(ans);
+  // ── 자동 임시저장 ──
+  saveProgress();
 
   var isLast=ES.qi>=DB.questions.length-1;
   if(isLast){
@@ -1485,6 +1574,7 @@ function timeUp(){
   clearInterval(ES.timer);
   var q=DB.questions[ES.qi];
   ES.answers.push({qi:ES.qi,qid:q.id,type:q.type,given:null,ok:false,pts:0,timeout:true});
+  saveProgress(); // 타임아웃 시도 저장
   disableQ(q);
   var isLast=ES.qi>=DB.questions.length-1;
   document.getElementById('btnArea').innerHTML=
@@ -1504,6 +1594,8 @@ function doFinishExam(){
     answers:ES.answers,time:new Date().toLocaleString('ko-KR'),ts:Date.now(),
     elapsed:Math.round((Date.now()-ES.startMs)/1000),studentEmail:''};
   DB.results.push(result);saveDB();
+  // ── 임시 저장 데이터 삭제 ──
+  clearProgress(ES.student.id);
   document.body.classList.remove('exam-active');
   showStudentResult(result);
 }
