@@ -8,6 +8,9 @@
 
 
 
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <!-- SheetJS for Excel -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
@@ -567,56 +570,136 @@ textarea{resize:vertical;}
 // DB
 // ============================================================
 // ============================================================
-// 로컬 저장소 전용 (안정적)
+// ============================================================
+// 저장소 설계
+// - 출제자: localStorage 기본, Firebase에 명시적 push/pull
+// - 학생: Firebase에서 읽기, 결과만 Firebase에 씀
+// - 실시간 리스너 없음 → 덮어쓰기 충돌 없음
 // ============================================================
 var LOCAL_KEY = 'examSysV7';
+var FB_READY = false;
+var fbDb = null;
+
+var FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAzP-2VH4ygUx8s4u97-Ewfr31-82dz3x0",
+  authDomain: "brodcast-system-2026-1-exam.firebaseapp.com",
+  databaseURL: "https://brodcast-system-2026-1-exam-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "brodcast-system-2026-1-exam",
+  storageBucket: "brodcast-system-2026-1-exam.firebasestorage.app",
+  messagingSenderId: "931057574299",
+  appId: "1:931057574299:web:6d64add559bba9a8e0013e"
+};
 
 function setStatus(msg){
   var el=document.getElementById('db-status');
   if(el) el.textContent=msg;
 }
 
-function saveStore(){
+function initFirebase(cb){
   try{
-    localStorage.setItem(LOCAL_KEY, JSON.stringify({exams:EXAMS, currentId:CURRENT_ID}));
-    if(CURRENT_ID) localStorage.setItem('currentExamId', CURRENT_ID);
-  }catch(e){ alert('저장 실패: 브라우저 저장 공간이 부족합니다.'); }
-}
-
-function saveDB(){
-  if(CURRENT_ID){
-    EXAMS[CURRENT_ID] = DB;
-    saveStore();
-    renderAll();
+    if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    fbDb = firebase.database();
+    FB_READY = true;
+    setStatus('🟢 Firebase 연결됨');
+    if(cb) cb();
+  }catch(e){
+    setStatus('🔴 로컬 모드');
+    if(cb) cb();
   }
 }
 
-function loadStore(){
+// ── 로컬 저장 (항상 동작) ──
+function saveLocal(){
+  try{ localStorage.setItem(LOCAL_KEY, JSON.stringify({exams:EXAMS, currentId:CURRENT_ID})); }catch(e){}
+}
+
+function loadLocal(){
   try{
-    var s = localStorage.getItem(LOCAL_KEY);
-    if(s){
-      var d = JSON.parse(s);
-      EXAMS = d.exams || {};
-      CURRENT_ID = d.currentId || null;
-    }
+    var s=localStorage.getItem(LOCAL_KEY);
+    if(s){ var d=JSON.parse(s); EXAMS=d.exams||{}; CURRENT_ID=d.currentId||null; }
     // 구버전 마이그레이션
-    if(Object.keys(EXAMS).length === 0){
-      var old = localStorage.getItem('examSysV6') || localStorage.getItem('examSysV5');
-      if(old){
-        try{
-          var od = JSON.parse(old);
-          if(od.exams) EXAMS = od.exams;
-          else if(od.questions && od.questions.length > 0){
-            var mid = 'exam_'+Date.now();
-            EXAMS[mid] = {id:mid, title:(od.settings&&od.settings.title)||'가져온 시험',
-              settings:od.settings||{title:'가져온 시험',defTime:60,adminPw:'',ejsServiceId:'',ejsTemplateId:'',ejsPublicKey:''},
-              questions:od.questions||[], students:od.students||[], results:od.results||[]};
-            saveStore();
-          }
-        }catch(e){}
-      }
+    if(!Object.keys(EXAMS).length){
+      var old=localStorage.getItem('examSysV6')||localStorage.getItem('examSysV5');
+      if(old){ try{ var od=JSON.parse(old);
+        if(od.exams) EXAMS=od.exams;
+        else if(od.questions&&od.questions.length){
+          var mid='exam_'+Date.now();
+          EXAMS[mid]={id:mid,title:(od.settings&&od.settings.title)||'가져온 시험',
+            settings:od.settings||{title:'가져온 시험',defTime:60,adminPw:'',ejsServiceId:'',ejsTemplateId:'',ejsPublicKey:''},
+            questions:od.questions||[],students:od.students||[],results:od.results||[]};
+        }
+      }catch(e){} }
     }
   }catch(e){}
+}
+
+// ── Firebase push (출제자가 명시적으로 업로드) ──
+function pushToFirebase(cb){
+  if(!FB_READY||!fbDb){ if(cb)cb(false); return; }
+  fbDb.ref('/exams').set(EXAMS)
+    .then(function(){ if(cb)cb(true); })
+    .catch(function(){ if(cb)cb(false); });
+}
+
+// ── Firebase pull (출제자가 명시적으로 내려받기) ──
+function pullFromFirebase(cb){
+  if(!FB_READY||!fbDb){ if(cb)cb(false); return; }
+  fbDb.ref('/exams').once('value', function(snap){
+    var val=snap.val();
+    if(val){
+      // 현재 작업중인 시험은 로컬 우선 유지
+      Object.keys(val).forEach(function(k){
+        if(!EXAMS[k]) EXAMS[k]=val[k]; // 로컬에 없는 것만 가져옴
+      });
+      saveLocal();
+    }
+    if(cb)cb(true);
+  }, function(){ if(cb)cb(false); });
+}
+
+// ── saveDB: 로컬+Firebase 동시 저장 ──
+function saveDB(){
+  if(!CURRENT_ID) return;
+  EXAMS[CURRENT_ID]=DB;
+  saveLocal();
+  // Firebase에도 해당 시험만 저장
+  if(FB_READY&&fbDb){
+    fbDb.ref('/exams/'+CURRENT_ID).set(DB)
+      .catch(function(e){ console.warn('Firebase 저장 실패:', e); });
+  }
+  renderAll();
+}
+
+// ── saveStore: 전체 저장 ──
+function saveStore(){
+  saveLocal();
+  if(FB_READY&&fbDb){
+    fbDb.ref('/exams').set(EXAMS)
+      .catch(function(e){ console.warn('Firebase 전체 저장 실패:', e); });
+  }
+  if(CURRENT_ID) localStorage.setItem('currentExamId', CURRENT_ID);
+}
+
+// ── 학생용: Firebase에서 특정 시험 읽기 ──
+function loadExamForStudent(examId, cb){
+  if(FB_READY&&fbDb){
+    fbDb.ref('/exams/'+examId).once('value', function(snap){
+      var val=snap.val();
+      if(val){ EXAMS[examId]=val; CURRENT_ID=examId; DB=val; saveLocal(); }
+      if(cb)cb(!!val);
+    }, function(){ if(cb)cb(false); });
+  } else {
+    // 로컬에서 찾기
+    if(cb)cb(!!(EXAMS[examId]));
+  }
+}
+
+// ── 학생 결과를 Firebase에 저장 ──
+function saveResultToFirebase(result){
+  if(FB_READY&&fbDb&&CURRENT_ID){
+    fbDb.ref('/exams/'+CURRENT_ID+'/results/'+result.sid+'_'+result.ts).set(result)
+      .catch(function(e){ console.warn('결과 저장 실패:', e); });
+  }
 }
 
 // ── 변수 ──
@@ -1433,7 +1516,10 @@ function doFinishExam(){
     provScore:earned,provPct:pct,finalScore:null,finalPct:null,finalized:false,
     answers:ES.answers,time:new Date().toLocaleString('ko-KR'),ts:Date.now(),
     elapsed:Math.round((Date.now()-ES.startMs)/1000),studentEmail:''};
-  DB.results.push(result);saveDB();
+  DB.results.push(result);
+  saveDB();
+  saveResultToFirebase(result); // Firebase에 결과 저장
+  clearProgress(ES.student.id); // 이어보기 임시데이터 삭제
   document.body.classList.remove('exam-active');
   showStudentResult(result);
 }
@@ -2239,41 +2325,61 @@ initMCOpts(4);
 typeUI();
 
 (function(){
-  // 로컬 저장소에서 로드
-  loadStore();
-  setStatus('💾 로컬 저장 모드');
+  // 1. 로컬에서 먼저 로드
+  loadLocal();
 
-  // URL 해시 라우팅 — #student?exam=ID 형태로 학생에게 공유
   var hash = window.location.hash || '';
   var isStudentMode = hash.indexOf('student') > -1;
 
   if(isStudentMode){
+    // ── 학생 모드 ──
     var examMatch = hash.match(/exam=([^&]+)/);
     var examId = examMatch ? examMatch[1] : null;
 
-    if(examId && EXAMS[examId]){
-      CURRENT_ID = examId;
-      DB = EXAMS[examId];
-    } else if(Object.keys(EXAMS).length > 0){
-      var ids = Object.keys(EXAMS).sort(function(a,b){return b>a?1:-1;});
-      CURRENT_ID = ids[0];
-      DB = EXAMS[CURRENT_ID];
-    }
-    if(CURRENT_ID){
-      document.getElementById('mainNav').classList.add('hidden');
-      document.getElementById('pn-dashboard').classList.add('hidden');
-      document.getElementById('pn-login').classList.remove('hidden');
-      syncSettingsUI();
-    } else {
-      document.getElementById('pn-dashboard').classList.remove('hidden');
-      renderDashboard();
-    }
+    // 로딩 표시
+    document.getElementById('mainNav').classList.add('hidden');
+    document.getElementById('pn-dashboard').classList.add('hidden');
+    document.getElementById('pn-login').classList.remove('hidden');
+    setStatus('🟡 시험 불러오는 중...');
+
+    initFirebase(function(){
+      var done = function(found){
+        if(found && CURRENT_ID && DB){
+          syncSettingsUI();
+          setStatus('🟢 연결됨');
+        } else {
+          setStatus('⚠ 시험을 찾을 수 없습니다');
+          var lerr = document.getElementById('lerr');
+          if(lerr){ lerr.textContent='시험 정보를 불러올 수 없습니다. 출제자에게 문의하세요.'; lerr.classList.remove('hidden'); }
+        }
+      };
+
+      if(examId){
+        // Firebase에서 해당 시험 로드
+        loadExamForStudent(examId, done);
+      } else if(Object.keys(EXAMS).length > 0){
+        var ids = Object.keys(EXAMS).sort(function(a,b){return b>a?1:-1;});
+        CURRENT_ID = ids[0]; DB = EXAMS[CURRENT_ID];
+        done(true);
+      } else {
+        done(false);
+      }
+    });
 
   } else {
-    // 출제자 모드: 대시보드
+    // ── 출제자 모드 ──
     document.getElementById('mainNav').classList.add('hidden');
     document.getElementById('pn-dashboard').classList.remove('hidden');
     renderDashboard();
+
+    // Firebase 백그라운드 연결 (없는 시험만 가져오기)
+    initFirebase(function(){
+      if(FB_READY){
+        pullFromFirebase(function(){
+          renderDashboard();
+        });
+      }
+    });
   }
 })();
 
