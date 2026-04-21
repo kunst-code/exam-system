@@ -277,8 +277,31 @@ textarea{resize:vertical;}
 <div id="pn-dashboard" class="dashboard">
   <div class="dash-header">
     <div class="dash-title">📝 시험 관리</div>
-    <button class="btn btn-dark" onclick="showCreateExam()">+ 새 시험 만들기</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="btn" onclick="togglePwChange()" style="font-size:12px;color:#888;border-color:#ddd;">🔐 비밀번호 변경</button>
+      <button class="btn btn-dark" onclick="showCreateExam()">+ 새 시험 만들기</button>
+    </div>
   </div>
+
+  <!-- 비밀번호 변경 패널 (기본 숨김) -->
+  <div id="pwChangePanel" class="hidden" style="max-width:880px;margin:0 auto 20px;">
+    <div class="card">
+      <div class="ctitle">🔐 관리자 로그인 비밀번호 변경</div>
+      <div style="font-size:12px;color:#999;margin-bottom:14px;">현재 비밀번호: <code id="currentKeyDisplay" style="background:#f4f4f2;padding:2px 8px;border-radius:4px;"></code></div>
+      <div class="row3">
+        <div class="field"><label>현재 비밀번호</label><input type="password" id="pwCurrent" placeholder="현재 비밀번호"/></div>
+        <div class="field"><label>새 비밀번호 (4자 이상)</label><input type="password" id="pwNew" placeholder="새 비밀번호" onkeydown="if(event.key==='Enter')changeAdminKey()"/></div>
+        <div class="field"><label>새 비밀번호 확인</label><input type="password" id="pwConfirm" placeholder="다시 입력" onkeydown="if(event.key==='Enter')changeAdminKey()"/></div>
+      </div>
+      <div id="pwErr" class="alert alert-err hidden" style="margin-bottom:10px;"></div>
+      <div id="pwOk" class="alert alert-ok hidden" style="margin-bottom:10px;"></div>
+      <div class="btn-row">
+        <button class="btn btn-dark" onclick="changeAdminKey()">비밀번호 변경</button>
+        <button class="btn" onclick="togglePwChange()">닫기</button>
+      </div>
+    </div>
+  </div>
+
   <div class="exam-grid" id="examGrid"></div>
 </div>
 
@@ -344,20 +367,6 @@ textarea{resize:vertical;}
       </div>
     </div>
     <div class="btn-row"><button class="btn btn-dark" onclick="saveSettings()">설정 저장</button><span id="setSaved" class="hidden" style="font-size:12px;color:#1b4332;align-self:center;font-weight:700;">저장됨 ✓</span></div>
-  </div>
-
-  <!-- 관리자 로그인 비밀번호 변경 -->
-  <div class="card">
-    <div class="ctitle">🔐 관리자 로그인 비밀번호 변경</div>
-    <div style="font-size:12px;color:#999;margin-bottom:14px;">이 비밀번호는 출제자 패널 로그인에 사용됩니다. 현재 비밀번호: <code id="currentKeyDisplay" style="background:#f4f4f2;padding:2px 8px;border-radius:4px;font-size:12px;"></code></div>
-    <div class="row3">
-      <div class="field"><label>현재 비밀번호</label><input type="password" id="pwCurrent" placeholder="현재 비밀번호"/></div>
-      <div class="field"><label>새 비밀번호</label><input type="password" id="pwNew" placeholder="새 비밀번호 (4자 이상)" onkeydown="if(event.key==='Enter')changeAdminKey()"/></div>
-      <div class="field"><label>새 비밀번호 확인</label><input type="password" id="pwConfirm" placeholder="다시 입력" onkeydown="if(event.key==='Enter')changeAdminKey()"/></div>
-    </div>
-    <div id="pwErr" class="alert alert-err hidden" style="margin-bottom:10px;"></div>
-    <div id="pwOk" class="alert alert-ok hidden" style="margin-bottom:10px;"></div>
-    <div class="btn-row"><button class="btn btn-dark" onclick="changeAdminKey()">비밀번호 변경</button></div>
   </div>
 
   <!-- Excel Upload -->
@@ -2507,10 +2516,27 @@ function doAdminLogin(){
   }
 }
 
+function togglePwChange(){
+  var panel = document.getElementById('pwChangePanel');
+  if(!panel) return;
+  var isHidden = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden');
+  if(isHidden){
+    // 열 때 현재 비밀번호 표시 갱신 및 입력 초기화
+    var kd = document.getElementById('currentKeyDisplay');
+    if(kd) kd.textContent = ADMIN_SECRET_KEY;
+    document.getElementById('pwCurrent').value = '';
+    document.getElementById('pwNew').value = '';
+    document.getElementById('pwConfirm').value = '';
+    document.getElementById('pwErr').classList.add('hidden');
+    document.getElementById('pwOk').classList.add('hidden');
+    document.getElementById('pwCurrent').focus();
+  }
+}
+
 function enterAdminMode(){
   document.getElementById('mainNav').classList.add('hidden');
   document.getElementById('pn-dashboard').classList.remove('hidden');
-  // 현재 비밀번호 표시
   var kd = document.getElementById('currentKeyDisplay');
   if(kd) kd.textContent = ADMIN_SECRET_KEY;
   renderDashboard();
