@@ -651,8 +651,15 @@ function saveStore(){
 
 function saveDB(){
   if(CURRENT_ID){
-    EXAMS[CURRENT_ID] = DB;
-    saveStore();
+    EXAMS[CURRENT_ID]=DB;
+    if(FB_READY && fbDb){
+      _isSaving=true;
+      fbDb.ref('/examStore/exams/'+CURRENT_ID).set(DB)
+        .then(function(){setTimeout(function(){_isSaving=false;},2000);})
+        .catch(function(e){_isSaving=false;localSave();});
+    } else {
+      localSave();
+    }
     renderAll();
   }
 }
@@ -1202,7 +1209,9 @@ function addStu(){
   var id=document.getElementById('sid').value.trim(),name=document.getElementById('sname').value.trim();
   if(!id||!name){alert('학번과 이름 입력');return;}
   if(DB.students.find(function(s){return s.id===id;})){alert('이미 등록된 학번');return;}
-  DB.students.push({id:id,name:name});saveDB();
+  DB.students.push({id:id,name:name});
+  EXAMS[CURRENT_ID]=DB;
+  saveStuDirect();
   document.getElementById('sid').value='';document.getElementById('sname').value='';
 }
 
@@ -1333,10 +1342,41 @@ function downloadStuSample(){
 function addSamples(){
   [{id:'2024001',name:'김민준'},{id:'2024002',name:'이서연'},{id:'2024003',name:'박지호'},{id:'2024004',name:'최수아'},{id:'2024005',name:'정우진'},
    {id:'2024006',name:'한도윤'},{id:'2024007',name:'오채원'},{id:'2024008',name:'윤시우'},{id:'2024009',name:'강하은'},{id:'2024010',name:'신준서'}
-  ].forEach(function(s){if(!DB.students.find(function(x){return x.id===s.id;}))DB.students.push(s);});saveDB();
+  ].forEach(function(s){if(!DB.students.find(function(x){return x.id===s.id;}))DB.students.push(s);});
+  EXAMS[CURRENT_ID]=DB;
+  saveStuDirect();
 }
-function clearStus(){DB.students=[];saveDB();}
-function delStu(id){DB.students=DB.students.filter(function(s){return s.id!==id;});saveDB();}
+function clearStus(){
+  if(!confirm('등록된 학생 전체를 삭제할까요?')) return;
+  DB.students=[];
+  EXAMS[CURRENT_ID]=DB;
+  saveStuDirect();
+}
+function delStu(id){
+  DB.students=DB.students.filter(function(s){return s.id!==id;});
+  EXAMS[CURRENT_ID]=DB;
+  saveStuDirect();
+}
+
+// 학생 목록 직접 저장 (타이밍 충돌 방지)
+function saveStuDirect(){
+  if(FB_READY && fbDb && CURRENT_ID){
+    _isSaving=true;
+    fbDb.ref('/examStore/exams/'+CURRENT_ID+'/students').set(DB.students)
+      .then(function(){
+        setTimeout(function(){_isSaving=false;},2000);
+        renderAll();
+      })
+      .catch(function(e){
+        _isSaving=false;
+        localSave();
+        renderAll();
+      });
+  } else {
+    localSave();
+    renderAll();
+  }
+}
 function renderStus(){
   var sl=document.getElementById('slist'),sc=document.getElementById('scnt');
   if(!sl)return;if(sc)sc.textContent=DB.students.length;
