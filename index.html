@@ -1388,6 +1388,22 @@ function checkResume(stu){
 function getLimit(q){if(q.tl===-1)return -1;if(q.tl===0)return DB.settings.defTime||0;return q.tl;}
 
 function startExam(stu){
+  // ── 이어보기 확인 ──
+  if(checkResume(stu)){
+    var saved=loadProgress(stu.id);
+    var msg='이전에 진행하던 시험이 있습니다.\n\n'+(saved.qi+1)+'번 문제까지 완료 ('+(saved.answers.length)+'/'+(DB.questions.length)+'문제)\n\n이어서 계속하시겠습니까?\n(아니오를 누르면 처음부터 다시 시작합니다)';
+    if(confirm(msg)){
+      // 이어보기
+      ES.student=stu;ES.qi=saved.qi+1;ES.answers=saved.answers;ES.startMs=saved.startMs;
+      go('exam');
+      document.getElementById('exName').textContent=stu.name+' ('+stu.id+') — '+(DB.settings.title||'');
+      renderQ();
+      return;
+    } else {
+      clearProgress(stu.id);
+    }
+  }
+  // 새로 시작
   ES.student=stu;ES.qi=0;ES.answers=[];ES.startMs=Date.now();
   go('exam');
   document.getElementById('exName').textContent=stu.name+' ('+stu.id+') — '+(DB.settings.title||'');
@@ -1496,6 +1512,7 @@ function submitQ(auto){
   }
 
   ES.answers.push(ans);
+  saveProgress(); // ── 매 문제 완료 시 즉시 저장 ──
 
   var isLast=ES.qi>=DB.questions.length-1;
   if(isLast){
@@ -1523,6 +1540,7 @@ function timeUp(){
   clearInterval(ES.timer);
   var q=DB.questions[ES.qi];
   ES.answers.push({qi:ES.qi,qid:q.id,type:q.type,given:null,ok:false,pts:0,timeout:true});
+  saveProgress(); // ── 타임아웃도 즉시 저장 ──
   disableQ(q);
   var isLast=ES.qi>=DB.questions.length-1;
   document.getElementById('btnArea').innerHTML=
