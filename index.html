@@ -647,9 +647,8 @@ function pullFromFirebase(cb){
   fbDb.ref('/exams').once('value', function(snap){
     var val=snap.val();
     if(val){
-      // 현재 작업중인 시험은 로컬 우선 유지
       Object.keys(val).forEach(function(k){
-        if(!EXAMS[k]) EXAMS[k]=val[k]; // 로컬에 없는 것만 가져옴
+        if(!EXAMS[k]) EXAMS[k]=fixExamArrays(val[k]);
       });
       saveLocal();
     }
@@ -680,17 +679,42 @@ function saveStore(){
   if(CURRENT_ID) localStorage.setItem('currentExamId', CURRENT_ID);
 }
 
+// Firebase 객체→배열 변환 헬퍼
+function toArr(val){
+  if(!val) return [];
+  if(Array.isArray(val)) return val;
+  // Firebase가 배열을 객체로 저장한 경우
+  return Object.values(val);
+}
+
+function fixExamArrays(exam){
+  if(!exam) return exam;
+  exam.questions = toArr(exam.questions);
+  exam.students  = toArr(exam.students);
+  exam.results   = toArr(exam.results);
+  return exam;
+}
+
 // ── 학생용: Firebase에서 특정 시험 읽기 ──
 function loadExamForStudent(examId, cb){
   if(FB_READY&&fbDb){
     fbDb.ref('/exams/'+examId).once('value', function(snap){
       var val=snap.val();
-      if(val){ EXAMS[examId]=val; CURRENT_ID=examId; DB=val; saveLocal(); }
+      if(val){
+        val = fixExamArrays(val);
+        EXAMS[examId]=val; CURRENT_ID=examId; DB=val;
+        saveLocal();
+      }
       if(cb)cb(!!val);
     }, function(){ if(cb)cb(false); });
   } else {
     // 로컬에서 찾기
-    if(cb)cb(!!(EXAMS[examId]));
+    if(EXAMS[examId]){
+      CURRENT_ID=examId; DB=EXAMS[examId];
+      if(cb)cb(true);
+    } else {
+      if(cb)cb(false);
+    }
   }
 }
 
@@ -1616,6 +1640,28 @@ function grade(pct){
 // REPORTS (출제자 전용)
 // ============================================================
 function renderReports(){
+  // Firebase에서 최신 결과 동기화
+  if(FB_READY&&fbDb&&CURRENT_ID){
+    fbDb.ref('/exams/'+CURRENT_ID+'/results').once('value', function(snap){
+      var val=snap.val();
+      if(val){
+        // Firebase 결과와 로컬 결과 병합 (중복 제거)
+        var fbResults = toArr(val);
+        fbResults.forEach(function(fr){
+          var exists = DB.results.find(function(r){return r.sid===fr.sid&&r.ts===fr.ts;});
+          if(!exists) DB.results.push(fr);
+        });
+        EXAMS[CURRENT_ID]=DB;
+        saveLocal();
+      }
+      _doRenderReports();
+    }, function(){ _doRenderReports(); });
+  } else {
+    _doRenderReports();
+  }
+}
+
+function _doRenderReports(){
   var ra=document.getElementById('repArea');if(!ra)return;
   if(!DB.results.length){ra.innerHTML='<div class="card"><p style="font-size:13px;color:#bbb;">아직 응시 결과가 없습니다.</p></div>';return;}
   var avg=Math.round(DB.results.reduce(function(s,r){return s+r.provPct;},0)/DB.results.length);
