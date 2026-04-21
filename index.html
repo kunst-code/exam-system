@@ -761,6 +761,7 @@ function selectExam(id){
   document.getElementById('mainNav').classList.remove('hidden');
   document.getElementById('currentExamLabel').textContent=DB.title||DB.settings.title||'시험';
   go('admin');
+  renderAll(); // ── 문제·학생·설정 목록 즉시 렌더 ──
 }
 
 function goToDashboard(){
