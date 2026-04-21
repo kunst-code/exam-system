@@ -607,12 +607,13 @@ function setStatus(msg){
 }
 
 // Firebase 실시간 리스너 — 데이터 변경 시 자동 반영
+var _isSaving = false;
 function startListening(){
   fbDb.ref('/examStore').on('value', function(snap){
+    if(_isSaving) return; // 저장 중에는 덮어쓰기 방지
     var val = snap.val();
     if(val){
       EXAMS = val.exams || {};
-      // CURRENT_ID는 로컬에서 관리 (각 기기별 현재 시험)
       var localId = localStorage.getItem('currentExamId');
       if(localId && EXAMS[localId]) CURRENT_ID = localId;
     }
@@ -634,14 +635,17 @@ function startListening(){
 // ── 저장 ──
 function saveStore(){
   if(FB_READY && fbDb){
-    fbDb.ref('/examStore/exams').set(EXAMS).catch(function(e){
-      console.error('Firebase 저장 오류:', e);
-      localSave();
-    });
+    _isSaving = true;
+    fbDb.ref('/examStore/exams').set(EXAMS)
+      .then(function(){ setTimeout(function(){_isSaving=false;},2000); })
+      .catch(function(e){
+        _isSaving = false;
+        console.error('Firebase 저장 오류:', e);
+        localSave();
+      });
   } else {
     localSave();
   }
-  // 현재 선택된 시험 ID는 로컬에 저장 (기기별)
   if(CURRENT_ID) localStorage.setItem('currentExamId', CURRENT_ID);
 }
 
@@ -1257,7 +1261,9 @@ function renderStuPreview(rows){
 
 function importStudents(){
   if(!pendingStuData.length){alert('데이터 없음');return;}
+  if(!CURRENT_ID){alert('먼저 시험을 선택하세요.');return;}
   var added=0, skipped=0;
+  // DB.students 직접 수정 후 EXAMS에 반영
   pendingStuData.forEach(function(row){
     var id=String(row['학번']||row['id']||row['ID']||'').trim();
     var name=String(row['이름']||row['name']||row['Name']||'').trim();
@@ -1269,9 +1275,27 @@ function importStudents(){
     DB.students.push(stu);
     added++;
   });
-  saveDB();
+  // EXAMS에 즉시 반영 후 저장
+  EXAMS[CURRENT_ID] = DB;
   clearStuPreview();
-  alert('✓ '+added+'명 등록 완료!'+(skipped?' (중복/오류 '+skipped+'명 스킵)':''));
+  // Firebase 저장
+  if(FB_READY && fbDb){
+    fbDb.ref('/examStore/exams/'+CURRENT_ID+'/students').set(DB.students)
+      .then(function(){
+        renderAll();
+        alert('✓ '+added+'명 등록 완료!'+(skipped?' (중복/오류 '+skipped+'명 스킵)':''));
+      })
+      .catch(function(e){
+        // 폴백: 전체 저장
+        saveStore();
+        renderAll();
+        alert('✓ '+added+'명 등록 완료!'+(skipped?' (중복/오류 '+skipped+'명 스킵)':''));
+      });
+  } else {
+    saveStore();
+    renderAll();
+    alert('✓ '+added+'명 등록 완료!'+(skipped?' (중복/오류 '+skipped+'명 스킵)':''));
+  }
 }
 
 function clearStuPreview(){
