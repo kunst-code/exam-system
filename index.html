@@ -346,6 +346,20 @@ textarea{resize:vertical;}
     <div class="btn-row"><button class="btn btn-dark" onclick="saveSettings()">설정 저장</button><span id="setSaved" class="hidden" style="font-size:12px;color:#1b4332;align-self:center;font-weight:700;">저장됨 ✓</span></div>
   </div>
 
+  <!-- 관리자 로그인 비밀번호 변경 -->
+  <div class="card">
+    <div class="ctitle">🔐 관리자 로그인 비밀번호 변경</div>
+    <div style="font-size:12px;color:#999;margin-bottom:14px;">이 비밀번호는 출제자 패널 로그인에 사용됩니다. 현재 비밀번호: <code id="currentKeyDisplay" style="background:#f4f4f2;padding:2px 8px;border-radius:4px;font-size:12px;"></code></div>
+    <div class="row3">
+      <div class="field"><label>현재 비밀번호</label><input type="password" id="pwCurrent" placeholder="현재 비밀번호"/></div>
+      <div class="field"><label>새 비밀번호</label><input type="password" id="pwNew" placeholder="새 비밀번호 (4자 이상)" onkeydown="if(event.key==='Enter')changeAdminKey()"/></div>
+      <div class="field"><label>새 비밀번호 확인</label><input type="password" id="pwConfirm" placeholder="다시 입력" onkeydown="if(event.key==='Enter')changeAdminKey()"/></div>
+    </div>
+    <div id="pwErr" class="alert alert-err hidden" style="margin-bottom:10px;"></div>
+    <div id="pwOk" class="alert alert-ok hidden" style="margin-bottom:10px;"></div>
+    <div class="btn-row"><button class="btn btn-dark" onclick="changeAdminKey()">비밀번호 변경</button></div>
+  </div>
+
   <!-- Excel Upload -->
   <div class="card">
     <div class="ctitle">엑셀로 문제 일괄 업로드</div>
@@ -2423,6 +2437,15 @@ typeUI();
 // ============================================================
 var ADMIN_SECRET_KEY = 'kunst2026admin';
 var ADMIN_AUTH_KEY   = 'examSysAdminAuth'; // localStorage 저장 키
+var ADMIN_PW_KEY     = 'examSysAdminPw';   // 변경된 비밀번호 저장 키
+
+// 저장된 비밀번호가 있으면 불러와서 ADMIN_SECRET_KEY 덮어쓰기
+(function(){
+  try{
+    var saved = localStorage.getItem(ADMIN_PW_KEY);
+    if(saved) ADMIN_SECRET_KEY = saved;
+  }catch(e){}
+})();
 
 function isAdminAuthed(){
   try{ return localStorage.getItem(ADMIN_AUTH_KEY) === ADMIN_SECRET_KEY; }catch(e){ return false; }
@@ -2432,6 +2455,39 @@ function saveAdminAuth(){
 }
 function clearAdminAuth(){
   try{ localStorage.removeItem(ADMIN_AUTH_KEY); }catch(e){}
+}
+
+function changeAdminKey(){
+  var cur  = document.getElementById('pwCurrent').value;
+  var nw   = document.getElementById('pwNew').value.trim();
+  var conf = document.getElementById('pwConfirm').value.trim();
+  var err  = document.getElementById('pwErr');
+  var ok   = document.getElementById('pwOk');
+  err.classList.add('hidden'); ok.classList.add('hidden');
+
+  if(cur !== ADMIN_SECRET_KEY){
+    err.textContent = '현재 비밀번호가 틀립니다.'; err.classList.remove('hidden'); return;
+  }
+  if(nw.length < 4){
+    err.textContent = '새 비밀번호는 4자 이상이어야 합니다.'; err.classList.remove('hidden'); return;
+  }
+  if(nw !== conf){
+    err.textContent = '새 비밀번호가 일치하지 않습니다.'; err.classList.remove('hidden'); return;
+  }
+  if(/[#&=]/.test(nw)){
+    err.textContent = '비밀번호에 #, &, = 문자는 사용할 수 없습니다.'; err.classList.remove('hidden'); return;
+  }
+
+  // 변경 적용
+  ADMIN_SECRET_KEY = nw;
+  try{ localStorage.setItem(ADMIN_PW_KEY, nw); }catch(e){}
+  saveAdminAuth(); // 새 비밀번호로 인증 갱신
+
+  document.getElementById('pwCurrent').value = '';
+  document.getElementById('pwNew').value = '';
+  document.getElementById('pwConfirm').value = '';
+  document.getElementById('currentKeyDisplay').textContent = ADMIN_SECRET_KEY;
+  ok.textContent = '✓ 비밀번호가 변경되었습니다.'; ok.classList.remove('hidden');
 }
 
 function doAdminLogin(){
@@ -2454,6 +2510,9 @@ function doAdminLogin(){
 function enterAdminMode(){
   document.getElementById('mainNav').classList.add('hidden');
   document.getElementById('pn-dashboard').classList.remove('hidden');
+  // 현재 비밀번호 표시
+  var kd = document.getElementById('currentKeyDisplay');
+  if(kd) kd.textContent = ADMIN_SECRET_KEY;
   renderDashboard();
   initFirebase(function(){
     if(FB_READY){
