@@ -251,6 +251,28 @@ textarea{resize:vertical;}
 
 <div id="app">
 
+<!-- ===== ADMIN LOGIN (해시 없이 접근 시) ===== -->
+<div id="pn-access-denied" class="hidden" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f4f2;">
+  <div style="max-width:340px;width:100%;padding:0 20px;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="font-size:48px;margin-bottom:12px;">📝</div>
+      <div style="font-size:22px;font-weight:700;margin-bottom:4px;">시험 관리 시스템</div>
+      <div style="font-size:13px;color:#999;">출제자 로그인</div>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label>관리자 비밀번호</label>
+        <input type="password" id="adminLoginInput" placeholder="비밀번호 입력"
+          autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')doAdminLogin()"/>
+      </div>
+      <div id="adminLoginErr" class="alert alert-err hidden" style="margin-bottom:10px;"></div>
+      <button class="btn btn-dark" onclick="doAdminLogin()" style="width:100%;margin-top:4px;">로그인 →</button>
+    </div>
+    <div style="text-align:center;font-size:12px;color:#ccc;margin-top:16px;">학생은 출제자에게 시험 링크를 받아 접속하세요</div>
+  </div>
+</div>
+
 <!-- ===== EXAM DASHBOARD ===== -->
 <div id="pn-dashboard" class="dashboard">
   <div class="dash-header">
@@ -287,13 +309,17 @@ textarea{resize:vertical;}
   <button class="nb" id="nav-login" onclick="go('login')">학생 시험</button>
   <button class="nb" id="nav-reports" onclick="requireAdmin('reports')">채점 결과 🔒</button>
   <span id="db-status"></span>
+  <button class="nb" onclick="if(confirm('로그아웃 하시겠습니까?')){clearAdminAuth();location.href=location.href.split('#')[0];}" style="margin-left:4px;color:#922b21;border-color:#f5c6cb;" title="출제자 로그아웃">로그아웃</button>
 </div>
 
 <!-- ===== ADMIN ===== -->
 <div id="pn-admin" class="panel hidden">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
     <div class="sec-title" style="margin:0;">출제자 패널</div>
-    <button class="btn btn-blue" onclick="showStudentURL()" title="학생에게 공유할 URL 복사">🔗 학생 시험 URL 복사</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-blue" onclick="showStudentURL()" title="학생에게 공유할 URL 복사">🔗 학생 시험 URL 복사</button>
+      <button class="btn" onclick="showAdminURL()" title="출제자 전용 URL 확인 (북마크용)" style="border-color:#ddd;color:#888;">🔐 출제자 URL 확인</button>
+    </div>
   </div>
   <div class="sec-sub">문제 등록 및 시험 설정</div>
 
@@ -2390,25 +2416,70 @@ function printPDF(type, sid, ts){
 initMCOpts(4);
 typeUI();
 
+// ============================================================
+// 출제자 비밀 키 (이 값을 바꾸면 출제자 URL도 바뀝니다)
+// 출제자 접속 URL: 현재페이지URL + #admin?key=ADMIN_SECRET_KEY
+// ※ 키에 #, &, = 특수문자는 사용하지 마세요 (URL 파싱 오류)
+// ============================================================
+var ADMIN_SECRET_KEY = 'kunst2026admin';
+var ADMIN_AUTH_KEY   = 'examSysAdminAuth'; // localStorage 저장 키
+
+function isAdminAuthed(){
+  try{ return localStorage.getItem(ADMIN_AUTH_KEY) === ADMIN_SECRET_KEY; }catch(e){ return false; }
+}
+function saveAdminAuth(){
+  try{ localStorage.setItem(ADMIN_AUTH_KEY, ADMIN_SECRET_KEY); }catch(e){}
+}
+function clearAdminAuth(){
+  try{ localStorage.removeItem(ADMIN_AUTH_KEY); }catch(e){}
+}
+
+function doAdminLogin(){
+  var inp = document.getElementById('adminLoginInput');
+  var err = document.getElementById('adminLoginErr');
+  if(!inp) return;
+  if(inp.value === ADMIN_SECRET_KEY){
+    saveAdminAuth();
+    err.classList.add('hidden');
+    document.getElementById('pn-access-denied').classList.add('hidden');
+    enterAdminMode();
+  } else {
+    err.textContent = '비밀번호가 틀립니다.';
+    err.classList.remove('hidden');
+    inp.value = '';
+    inp.focus();
+  }
+}
+
+function enterAdminMode(){
+  document.getElementById('mainNav').classList.add('hidden');
+  document.getElementById('pn-dashboard').classList.remove('hidden');
+  renderDashboard();
+  initFirebase(function(){
+    if(FB_READY){
+      pullFromFirebase(function(){ renderDashboard(); });
+    }
+  });
+}
+
 (function(){
-  // 1. 로컬에서 먼저 로드
   loadLocal();
 
   var hash = window.location.hash || '';
-  var isStudentMode = hash.indexOf('student') > -1;
+  // window.location.hash 는 '#'을 포함해 반환 → 비교 시 주의
+  var isStudentMode = /^#student(\?|$)/.test(hash);
+  var isAdminMode   = /^#admin(\?|$)/.test(hash);
 
   if(isStudentMode){
-    // ── 학생 모드 ──
+    // ── 학생 모드: #student?exam=exam_xxx ──
     var examMatch = hash.match(/exam=([^&]+)/);
     var examId = examMatch ? examMatch[1] : null;
 
-    // 로딩 표시
     document.getElementById('mainNav').classList.add('hidden');
     document.getElementById('pn-dashboard').classList.add('hidden');
     document.getElementById('pn-login').classList.remove('hidden');
     setStatus('🟡 시험 불러오는 중...');
 
-    // 로딩 중 버튼 비활성화
     var loginBtn = document.querySelector('#pn-login .btn-dark');
     if(loginBtn){ loginBtn.disabled=true; loginBtn.textContent='시험 불러오는 중...'; }
     var sn=document.getElementById('exam-status-notice');
@@ -2425,12 +2496,10 @@ typeUI();
           var lerr = document.getElementById('lerr');
           if(lerr){ lerr.textContent='시험 정보를 불러올 수 없습니다. 출제자에게 문의하세요.'; lerr.classList.remove('hidden'); }
           if(loginBtn){ loginBtn.disabled=true; loginBtn.textContent='시험 없음'; }
-          if(sn){ sn.className='alert alert-err'; sn.textContent='⚠ 시험 정보를 찾을 수 없습니다. URL을 확인하거나 출제자에게 문의하세요.'; }
+          if(sn){ sn.className='alert alert-err'; sn.textContent='⚠ 시험 정보를 찾을 수 없습니다.'; }
         }
       };
-
       if(examId){
-        // Firebase에서 해당 시험 로드
         loadExamForStudent(examId, done);
       } else if(Object.keys(EXAMS).length > 0){
         var ids = Object.keys(EXAMS).sort(function(a,b){return b>a?1:-1;});
@@ -2441,34 +2510,58 @@ typeUI();
       }
     });
 
-  } else {
-    // ── 출제자 모드 ──
-    document.getElementById('mainNav').classList.add('hidden');
-    document.getElementById('pn-dashboard').classList.remove('hidden');
-    renderDashboard();
+  } else if(isAdminMode){
+    // ── 출제자 모드: #admin?key=비밀키 ──
+    var keyMatch = hash.match(/key=([^&]+)/);
+    var accessKey = keyMatch ? keyMatch[1] : '';
 
-    // Firebase 백그라운드 연결 (없는 시험만 가져오기)
-    initFirebase(function(){
-      if(FB_READY){
-        pullFromFirebase(function(){
-          renderDashboard();
-        });
-      }
-    });
+    if(accessKey !== ADMIN_SECRET_KEY){
+      document.getElementById('pn-access-denied').classList.remove('hidden');
+      setTimeout(function(){ document.getElementById('adminLoginInput').focus(); }, 100);
+      return;
+    }
+    saveAdminAuth(); // 키 URL로 접속 시 인증 저장
+    enterAdminMode();
+
+  } else {
+    // ── 해시 없음 ──
+    // 로컬 file:// 또는 이미 인증된 출제자 → 바로 진입
+    if(window.location.protocol === 'file:' || isAdminAuthed()){
+      enterAdminMode();
+    } else {
+      // 웹 배포 환경 미인증 → 로그인 폼 표시
+      document.getElementById('pn-access-denied').classList.remove('hidden');
+      setTimeout(function(){ document.getElementById('adminLoginInput').focus(); }, 100);
+    }
   }
 })();
 
-// 학생용 URL 생성 헬퍼
 function getStudentURL(){
   var base = window.location.href.split('#')[0];
   return base + '#student?exam=' + (CURRENT_ID||'');
 }
 
+function getAdminURL(){
+  var base = window.location.href.split('#')[0];
+  return base + '#admin?key=' + ADMIN_SECRET_KEY;
+}
+
 function showStudentURL(){
   if(!CURRENT_ID){alert('먼저 시험을 선택하세요.');return;}
   var url = getStudentURL();
-  var msg = '학생 공유 URL:\n\n'+url+'\n\n이 링크로 접속하면 학생 로그인 화면만 표시됩니다.';
-  // 클립보드 복사 시도
+  var msg = '📤 학생 공유 URL (이것만 학생에게 전달하세요):\n\n'+url+'\n\n이 링크로 접속하면 학생 로그인 화면만 표시됩니다.\n출제자 패널로 이동할 수 없습니다.';
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(url).then(function(){
+      alert(msg+'\n\n✓ 클립보드에 복사되었습니다!');
+    }).catch(function(){alert(msg);});
+  } else {
+    alert(msg);
+  }
+}
+
+function showAdminURL(){
+  var url = getAdminURL();
+  var msg = '🔐 출제자 전용 URL (절대 학생에게 공유하지 마세요):\n\n'+url+'\n\n이 URL을 북마크 해두세요.\n비밀 키: '+ADMIN_SECRET_KEY+'\n\n※ 비밀 키는 index.html의 ADMIN_SECRET_KEY 변수에서 변경 가능합니다.\n  키에 #, &, = 특수문자는 사용하지 마세요.';
   if(navigator.clipboard){
     navigator.clipboard.writeText(url).then(function(){
       alert(msg+'\n\n✓ 클립보드에 복사되었습니다!');
